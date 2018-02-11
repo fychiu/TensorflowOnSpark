@@ -1,2 +1,1 @@
-# SparkOnTensorflow
 # TensorflowOnSpark
