@@ -19,7 +19,7 @@ class Ace291():
         self.n_hidden = 100
         self.feat_size = 40
         self.learning_rate = 1e-3
-        self.frames = 300
+        self.frames = 700
         self.batch_size = 50
         self.n_channel = 1
         self.feat_fn = feat_extractor.logfbank

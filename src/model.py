@@ -4,9 +4,10 @@ import numpy as np
 def test(testData, testLen, classifier):
     correct=0.
     batchsize = 50
+    n = testData[0].shape[0]
     for data, Len in DataBatch(testData,testLen,batchsize):
-        correct += classifier(data, Len)
-    return correct/testData.shape[0]*100
+        correct += sum(classifier(data, Len))
+    return correct/n*100
 
 def DataBatch(testData, testLen, batchsize, shuffle=True):
     testQue, testPos, testNeg = testData
@@ -17,8 +18,6 @@ def DataBatch(testData, testLen, batchsize, shuffle=True):
     else:
         index = np.arange(n)
     for i in range(int(np.ceil(n/batchsize))):
-        if i + batchsize > len(testQue):
-            break
         inds = index[i*batchsize : min(n,(i+1)*batchsize)]
         yield [testQue[inds], testPos[inds], testNeg[inds]], \
               [testQueLen[inds], testPosLen[inds], testNegLen[inds]]
@@ -83,8 +82,8 @@ class Autoencoder(object):
     def encoder(self, feat_mat, feat_n_frame):
         unstackX = tf.unstack(tf.transpose(feat_mat, [1, 0, 2]), num=self.n_frame)
         with tf.variable_scope('Encoder', reuse=tf.AUTO_REUSE) as scope:
-            state = tf.zeros([self.b_size, self.n_repr])
-            cell = tf.zeros([self.b_size, self.n_repr])
+            state = tf.fill([tf.shape(feat_n_frame)[0], self.n_repr], 0.0)
+            cell = tf.fill([tf.shape(feat_n_frame)[0], self.n_repr], 0.0)
             rnn_outputs = []
             for tstep, current_input in enumerate(unstackX):
                 if tstep > 0:
@@ -114,15 +113,10 @@ class Autoencoder(object):
                 state = tf.multiply(tf.nn.tanh(cell), o)
 
                 rnn_outputs.append(state)
-            #self.final_state = rnn_outputs[-1]
             rnn_outputs = tf.stack(rnn_outputs)
-            self.final_state = []
-            unstackLen = tf.unstack(feat_n_frame, num=self.b_size)
-            time_steps = tf.range(tf.shape(feat_n_frame)[0])
-            indices = tf.stack([feat_n_frame, time_steps])
-            for b_index, tstep in enumerate(unstackLen):
-                self.final_state.append(tf.gather(rnn_outputs[tstep], b_index))
-            self.final_state = tf.stack(self.final_state)
+            batch_steps = tf.range(tf.shape(feat_n_frame)[0])
+            indices = tf.stack([feat_n_frame, batch_steps], axis=1)
+            self.final_state = tf.gather_nd(rnn_outputs, indices)
 
         return self.final_state
 
@@ -130,8 +124,8 @@ class Autoencoder(object):
         tileX = tf.tile(tf.expand_dims(repr_vec, 0), [self.n_frame, 1, 1])
         unstackX = tf.unstack(tileX, num=self.n_frame)
         with tf.variable_scope('Decoder', reuse=tf.AUTO_REUSE) as scope:
-            state = tf.zeros([self.b_size, self.feat_size])
-            cell = tf.zeros([self.b_size, self.feat_size])
+            state = tf.zeros([tf.shape(feat_n_frame)[0], self.feat_size])
+            cell = tf.zeros([tf.shape(feat_n_frame)[0], self.feat_size])
             rnn_outputs = []
             for tstep, current_input in enumerate(unstackX):
                 if tstep > 0:
