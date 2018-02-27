@@ -14,7 +14,7 @@ feat_extractor = speech_feat()
 
 class Ace291():
     def __init__(self):
-        self.n_epoch = 20
+        self.n_epoch = 2000
         self.n_hidden_layers = [500, 180, 120]
         self.feat_size = 40
         self.learning_rate = 1e-3
@@ -63,7 +63,7 @@ class Ace291():
         autoencoder.calculateCost()
         
         print('Model declaration done.\t Spend %.4f seconds' % (time.time() - start))
-        autoencoder.training(self.n_epoch, self.trainData, self.devData, repack_data) 
+        autoencoder.training(self.n_epoch, self.trainData, self.devData, repack_data, True, True) 
 
     def check_input(self):
         assert len(sys.argv) == 2, \
@@ -89,10 +89,10 @@ class Ace291():
             elif '.flac' in file_name:
                 with open(file_name, 'rb') as f:
                     data, samplerate = sf.read(f)
-                mfcc_feat = self.feat_fn(data, samplerate, nfilt=feat_size)
+                audio_feat = self.feat_fn(data, samplerate, nfilt=feat_size)
                 #delta_feat = feature_extractor(
-                audioData[os.path.basename(file_name)] = mfcc_feat
-                audioLens[os.path.basename(file_name)] = mfcc_feat.shape[0]
+                audioData[os.path.basename(file_name)] = audio_feat
+                audioLens[os.path.basename(file_name)] = audio_feat.shape[0]
         assert sum([1 for audioFile in audioData if audioFile not in audioTran])==0
     
     def data_preprocessing(self, audioFiles, audioLens, audioData):
