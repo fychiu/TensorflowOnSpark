@@ -21,7 +21,7 @@ def DataBatch(testData, batchsize, shuffle=True):
 
 class Autoencoder(object):
     
-    def __init__(self, n_hidden_layers, feat_size, learning_rate, n_frame, b_size=40, pretrain_epoch=100, mode=True):
+    def __init__(self, n_hidden_layers, feat_size, learning_rate, n_frame, b_size=40, pretrain_epoch=100, load=True):
         self.n_layer_1, self.n_layer_2, self.n_layer_3 = n_hidden_layers
         self.n_layer = len(n_hidden_layers)
         self.layers = n_hidden_layers
@@ -32,17 +32,14 @@ class Autoencoder(object):
         self.b_size = b_size
         self.pretrain_n_epoch = pretrain_epoch
         self.act_fn = tf.tanh
-        self.mode = mode
+        self.load = load
     
-    def dropout(self, X, rate=0.1, shape=None):
-        return tf.layers.dropout(X, rate=rate, noise_shape=shape, 
-                                 seed=7, training=self.mode)
+    def dropout(self, X, rate=0.1, shape=None, mode=True):
+        return tf.layers.dropout(X, rate=rate, noise_shape=shape, seed=7, training=mode)
 
     def initPlaceholders(self):
         self.feat_shape = [None, self.n_frame, self.feat_size]
         self.feat_mat = tf.placeholder(dtype=tf.float32, shape=self.feat_shape)
-        dropout_feat_mat = self.dropout(self.feat_mat, shape=[None, 1, self.feat_size])
-        self.X = tf.reshape(dropout_feat_mat, [-1, self.n_frame * self.feat_size])
         
     def initParams(self):
             initializer = tf.random_uniform_initializer(-1.0, 1.0, seed=7)
@@ -68,32 +65,34 @@ class Autoencoder(object):
             self.b_6 = tf.get_variable('b_6', shape=[1, self.feat_size * self.n_frame], 
                                        initializer=initializer, trainable=True)
 
-    def encoder(self, feat_mat):
+    def encoder(self, feat_mat, dropout=True):
         act_fn = self.act_fn
-        self.y_1 = self.dropout(act_fn(tf.matmul(feat_mat, self.W_1) + self.b_1))
-        self.y_2 = self.dropout(act_fn(tf.matmul(self.y_1, self.W_2) + self.b_2))
-        self.y_3 = self.dropout(act_fn(tf.matmul(self.y_2, self.W_3) + self.b_3))
-        return self.y_3
+        y_1 = self.dropout(act_fn(tf.matmul(feat_mat, self.W_1) + self.b_1), mode=dropout)
+        y_2 = self.dropout(act_fn(tf.matmul(y_1, self.W_2) + self.b_2), mode=dropout)
+        y_3 = self.dropout(act_fn(tf.matmul(y_2, self.W_3) + self.b_3), mode=dropout)
+        return y_3
 
     def decoder(self, repr_vec):
         act_fn = self.act_fn
-        self.y_4 = self.dropout(act_fn(tf.matmul(repr_vec, tf.transpose(self.W_3)) + self.b_4))
-        self.y_5 = self.dropout(act_fn(tf.matmul(self.y_4, tf.transpose(self.W_2)) + self.b_5))
-        self.y_6 = tf.matmul(self.y_5, tf.transpose(self.W_1)) + self.b_6
-        return self.y_6
+        y_4 = self.dropout(act_fn(tf.matmul(repr_vec, tf.transpose(self.W_3)) + self.b_4))
+        y_5 = self.dropout(act_fn(tf.matmul(y_4, tf.transpose(self.W_2)) + self.b_5))
+        y_6 = tf.matmul(y_5, tf.transpose(self.W_1)) + self.b_6
+        return y_6
 
-    def model(self, load_model=False):
+    def model(self):
         self.sess = tf.Session()
+        dropout_feat_mat = self.dropout(self.feat_mat, shape=[None, 1, self.feat_size])
+        self.X_dropout = tf.reshape(dropout_feat_mat, [-1, self.n_frame * self.feat_size])
+        self.X = tf.reshape(self.feat_mat, [-1, self.n_frame * self.feat_size])
 
         '''encoder'''
-        self.repr = self.encoder(self.X)
+        self.repr_dropout = self.encoder(self.X_dropout)
+        self.repr = self.encoder(self.X, dropout=False)
 
         '''decoder'''
-        self.decX = self.decoder(self.repr)
+        self.decX_dropout = self.decoder(self.repr_dropout)
 
         self.saver = tf.train.Saver()
-        if self.mode == False:
-            load_model()
 
     def pretrain(self, trainData):
         n_layer = self.n_layer
@@ -165,8 +164,8 @@ class Autoencoder(object):
         return
 
     def load_model(self):
-        tf.reset_default_graph()
-        self.saver.restore(self.sess, "./speech_autoencoder.ckpt")
+        self.sess.run(tf.global_variables_initializer())
+        self.saver.restore(self.sess, "./speech_autoencoder_dropout.ckpt")
     
     def save_model(self):
         self.saver.save(self.sess, "./speech_autoencoder_dropout.ckpt")
@@ -175,15 +174,17 @@ class Autoencoder(object):
         return tf.reduce_mean(tf.reduce_sum((X - Y)**2, axis=1))
 
     def calculateCost(self):
-        self.SE = self.square_err(self.X, self.decX)
+        self.SE = self.square_err(self.X_dropout, self.decX_dropout)
         self.cost = self.SE
         self.optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.cost)
+        if self.load == True:
+            print('Loading trained model')
+            self.load_model()
 
     def __call__(self, X):
         return self.sess.run(self.cost, feed_dict={self.feat_mat: X})
 
-    def extract_representation(self, X):
-        assert self.mode == False
+    def extract(self, X):
         return self.sess.run(self.repr, feed_dict={self.feat_mat: X})
         
     def training(self, n_epoch, trainData, devData, repack_data=None, pretrain=False, load_pretrain=False):
@@ -210,7 +211,7 @@ class Autoencoder(object):
                   (epoch, np.mean(total_cost), dev_cost))
             if dev_cost < lowest_cost:
                 lowest_cose = dev_cost
-                self.save_model()
+                #self.save_model()
             if repack_data != None:
                 repack_data()
 

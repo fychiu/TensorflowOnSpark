@@ -9,6 +9,7 @@ from os import walk
 import sys
 import time
 import random
+import json
 
 feat_extractor = speech_feat()
 
@@ -23,6 +24,7 @@ class Ace291():
         self.n_channel = 1
         self.feat_fn = feat_extractor.logfbank
         self.normalize = True
+        self.istraining = False
         
         start = time.time()
         self.check_input()
@@ -56,14 +58,15 @@ class Ace291():
 
         start = time.time()
         autoencoder = Autoencoder(self.n_hidden_layers, self.feat_size, self.learning_rate, 
-                                  self.frames, self.batch_size)
+                                  self.frames, self.batch_size, load=True)
         autoencoder.initPlaceholders()
         autoencoder.initParams()
         autoencoder.model()
         autoencoder.calculateCost()
         
         print('Model declaration done.\t Spend %.4f seconds' % (time.time() - start))
-        autoencoder.training(self.n_epoch, self.trainData, self.devData, repack_data, True, True) 
+        #autoencoder.training(self.n_epoch, self.trainData, self.devData, repack_data, True, True) 
+        self.extract_representation(audioFiles, audioData, autoencoder)
 
     def check_input(self):
         assert len(sys.argv) == 2, \
@@ -90,7 +93,6 @@ class Ace291():
                 with open(file_name, 'rb') as f:
                     data, samplerate = sf.read(f)
                 audio_feat = self.feat_fn(data, samplerate, nfilt=feat_size)
-                #delta_feat = feature_extractor(
                 audioData[os.path.basename(file_name)] = audio_feat
                 audioLens[os.path.basename(file_name)] = audio_feat.shape[0]
         assert sum([1 for audioFile in audioData if audioFile not in audioTran])==0
@@ -125,5 +127,23 @@ class Ace291():
         n_devData = int(len(self.trainData) * 0.2)
         self.devData = np.array(self.trainData[-n_devData:])
         self.trainData = np.array(self.trainData[:-n_devData])
+
+    def extract_representation(self, audioFiles, audioData, autoencoder):
+        encoding_dir = './extract_encoding/'
+        if not os.path.isdir(encoding_dir):
+            os.mkdir(encoding_dir)
+        for audioFile in audioFiles:
+            audioEncoding = []
+            audioFeatures = []
+            n = audioData[audioFile].shape[0]
+            for i in range(0, n, int(self.frames/4)):
+                if i + self.frames > n:
+                    break
+                audioFeatures.append(np.array(audioData[audioFile][i: i + self.frames]))
+            audioFeatures = np.array(audioFeatures)
+            for i in range(0, n, self.batch_size):
+                audioEncoding.extend(autoencoder.extract(audioFeatures[i: i + self.batch_size]).tolist())
+            json.dump(audioEncoding, open(encoding_dir + audioFile + '.json', 'w', encoding='utf8'))
+        print('Extraction of encoding is done')
 
 ace = Ace291()
