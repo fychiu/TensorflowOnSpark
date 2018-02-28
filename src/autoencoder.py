@@ -211,7 +211,7 @@ class Autoencoder(object):
                   (epoch, np.mean(total_cost), dev_cost))
             if dev_cost < lowest_cost:
                 lowest_cose = dev_cost
-                #self.save_model()
+                self.save_model()
             if repack_data != None:
                 repack_data()
 
