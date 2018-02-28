@@ -139,7 +139,7 @@ class Autoencoder(object):
                         load_variables['b_%d' % (2*n_layer - (i - j))] = b_list[-1]
                 
                 cost = self.square_err(X, y_list[-1])
-                optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(cost)
+                optimizer = tf.train.AdamOptimizer(learning_rate=1e-3).minimize(cost)
                 #g.finalize()
 
             sess = tf.Session(graph=g)

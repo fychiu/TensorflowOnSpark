@@ -14,10 +14,10 @@ feat_extractor = speech_feat()
 
 class Ace291():
     def __init__(self):
-        self.n_epoch = 2000
+        self.n_epoch = 1000
         self.n_hidden_layers = [500, 180, 120]
         self.feat_size = 40
-        self.learning_rate = 1e-3
+        self.learning_rate = 1e-4
         self.frames = 100
         self.batch_size = 50
         self.n_channel = 1
