@@ -33,10 +33,10 @@ class Ace291():
         file_names = []
         self.get_file_under_folder(data_folder, file_names)
         
-        audioData, audioLens, audioTran = {}, {}, {}
+        audioData, audioLens = {}, {}
         vocab = defaultdict(list)
         
-        self.read_data(audioData, audioLens, audioTran, vocab, file_names)
+        self.read_data(audioData, audioLens, file_names)
         
         audioFiles = list(audioData.keys())
         print('Data reading done.\t Spend %.4f seconds' % (time.time() - start))
@@ -47,7 +47,7 @@ class Ace291():
         print('Data preprocessing done.\t Spend %.4f seconds' % (time.time() - start))
         
         '''All data strcuture is defined in function pack_data)'''
-        self.pack_data(audioFiles, audioData, audioLens, audioTran)
+        self.pack_data(audioFiles, audioData, audioLens)
 
         def repack_data():
             self.pack_data(audioFiles, audioData, audioLens, audioTran)
@@ -65,7 +65,7 @@ class Ace291():
         autoencoder.calculateCost()
         
         print('Model declaration done.\t Spend %.4f seconds' % (time.time() - start))
-        #autoencoder.training(self.n_epoch, self.trainData, self.devData, repack_data, True, True) 
+        #autoencoder.training(self.n_epoch, self.trainData, self.devData, repack_data)#, True, True) 
         self.extract_representation(audioFiles, audioData, autoencoder)
 
     def check_input(self):
@@ -76,26 +76,15 @@ class Ace291():
         for (dirpath, dirnames, filenames) in walk(folder):
             file_list.extend([os.path.join(dirpath, fname) for fname in filenames])
 
-    def read_data(self, audioData, audioLens, audioTran, vocab, file_names):
+    def read_data(self, audioData, audioLens, file_names):
         feat_size = self.feat_size
         for file_name in file_names:
-            if '.txt' in file_name:
-                path = os.path.dirname(file_name)
-                with open(file_name, 'r') as f:
-                    text = f.readlines()
-                text = text if text[-1] != '' else text[:-1]
-                lines = [line.lower().split() for line in text]
-                for line in lines:
-                    audioTran[line[0] + '.flac'] = line[1:]
-                    for word in line[1:]:
-                        vocab[word].append(line[0])
-            elif '.flac' in file_name:
+            if '.flac' in file_name or '.wav' in file_name:
                 with open(file_name, 'rb') as f:
                     data, samplerate = sf.read(f)
                 audio_feat = self.feat_fn(data, samplerate, nfilt=feat_size)
                 audioData[os.path.basename(file_name)] = audio_feat
                 audioLens[os.path.basename(file_name)] = audio_feat.shape[0]
-        assert sum([1 for audioFile in audioData if audioFile not in audioTran])==0
     
     def data_preprocessing(self, audioFiles, audioLens, audioData):
         feat_size = self.feat_size
@@ -104,6 +93,9 @@ class Ace291():
         std = np.zeros((1, feat_size))
         n = 0
         for audioFile in audioFiles:
+            if audioLens[audioFile] < self.frames:
+                n_lack = self.frames - audioLens[audioFile]
+                audioData[audioFile] = np.concatenate([audioData[audioFile], [zero_feat] * n_lack], axis=0)
             mean += np.sum(audioData[audioFile], axis=0, keepdims=True) 
             std += np.sum(audioData[audioFile]**2, axis=0, keepdims=True) 
             n += audioData[audioFile].shape[0]
@@ -112,10 +104,16 @@ class Ace291():
             return
         mean = mean / n
         std = std / n - mean**2
+        if os.path.isfile('./mean') and os.path.isfile('./std'):
+            mean = np.array(json.load(open('./mean', 'r', encoding='utf8')))
+            std = np.array(json.load(open('./std', 'r', encoding='utf8')))
+        else:
+            json.dump(mean.tolist(), open('./mean', 'w', encoding='utf8'))
+            json.dump(std.tolist(), open('./std', 'w', encoding='utf8'))
         for audioFile in audioFiles:
             audioData[audioFile] = (audioData[audioFile] - (mean + 1e-8))/std
     
-    def pack_data(self, audioFiles, audioData, audioLens, audioTran):
+    def pack_data(self, audioFiles, audioData, audioLens):
         self.trainData = []
         for audioFile in audioFiles:
             n = audioData[audioFile].shape[0]
@@ -136,13 +134,16 @@ class Ace291():
             audioEncoding = []
             audioFeatures = []
             n = audioData[audioFile].shape[0]
+            assert n != 0, audioData[audioFile].shape
             for i in range(0, n, int(self.frames/4)):
                 if i + self.frames > n:
                     break
                 audioFeatures.append(np.array(audioData[audioFile][i: i + self.frames]))
             audioFeatures = np.array(audioFeatures)
+            assert audioFeatures.shape[0] != 0, audioFeatures.shape
+            Len = audioFeatures.shape[0]
             for i in range(0, n, self.batch_size):
-                audioEncoding.extend(autoencoder.extract(audioFeatures[i: i + self.batch_size]).tolist())
+                audioEncoding.extend(autoencoder.extract(audioFeatures).tolist())
             json.dump(audioEncoding, open(encoding_dir + audioFile + '.json', 'w', encoding='utf8'))
         print('Extraction of encoding is done')
 
