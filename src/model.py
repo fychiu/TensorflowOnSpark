@@ -24,14 +24,18 @@ def DataBatch(testData, testLen, batchsize, shuffle=True):
 
 class Autoencoder(object):
     
-    def __init__(self, n_hidden, feat_size, learning_rate, n_frame, b_size=40):
+    def __init__(self, n_hidden, feat_size, learning_rate, n_frame, b_size=40, load=True):
         self.n_repr = n_hidden
         self.feat_size = feat_size
         self.learning_rate = learning_rate
         self.n_frame = n_frame
         self.b_size = b_size
         self.n_tran = self.n_repr
+        self.load = load
     
+    def dropout(self, X, rate=0.1, shape=None, mode=True):
+        return tf.layers.dropout(X, rate=rate, noise_shape=shape, seed=7, training=mode)
+
     def initPlaceholders(self):
         self.feat_shape = [None, self.n_frame, self.feat_size]
         self.que_mat = tf.placeholder(dtype=tf.float32, shape=self.feat_shape)
@@ -55,30 +59,6 @@ class Autoencoder(object):
                                      shape=[1, self.feat_size], 
                                      initializer=initializer)
     
-    def composition_layer(self, x, n_kernel, kernel_size):
-        BN1 = tf.layers.batch_normalization(x)
-        ReLU1 = tf.nn.relu(BN1)
-        conv1 = tf.layers.conv2d(ReLU1, n_kernel, kernel_size, padding='same', activation=None)
-        return conv1
-
-    def transition_layer(self, x, n_kernel):
-        conv = tf.layers.conv2d(x, n_kernel, 1, activation=None)
-        pool = tf.layers.max_pooling2d(conv, pool_size=2, strides=2)
-        return pool
-
-    def encoder_cnn(self, feat_mat, feat_n_frame):
-        with tf.variable_scope('encoder_cnn', reuse=tf.AUTO_REUSE):
-            comp1 = self.composition_layer(self.x, k, 15)
-            comp2 = self.composition_layer(tf.concat([self.x, comp1], axis=-1), k, 7)
-            comp3 = self.composition_layer(tf.concat([self.x, comp1, comp2], axis=-1), k, 5)
-            feats = tf.concat([self.x, comp1, comp2, comp3], axis=-1)
-            trans = self.transition_layer(feats, k)
-         
-            comp4 = self.composition_layer(trans, k, 15)
-            comp5 = self.composition_layer(tf.concat([trans, comp4], axis=-1), k, 7)
-            comp6 = self.composition_layer(tf.concat([trans, comp4, comp5], axis=-1), k, 5)
-            output = tf.concat([trans, comp4, comp5, comp6], axis=-1)
-
     def encoder(self, feat_mat, feat_n_frame):
         unstackX = tf.unstack(tf.transpose(feat_mat, [1, 0, 2]), num=self.n_frame)
         with tf.variable_scope('Encoder', reuse=tf.AUTO_REUSE) as scope:
@@ -203,10 +183,8 @@ class Autoencoder(object):
         self.neg_distance = self.euclidean_dis(self.que_repr, self.neg_repr)
 
         '''decoder'''
-        self.que_dec = self.decoder(self.que_repr, self.que_n_frame)
         self.pos_dec = self.decoder(self.pos_repr, self.pos_n_frame)
         self.neg_dec = self.decoder(self.neg_repr, self.neg_n_frame)
-        self.que_out = self.output_decode(self.que_dec)
         self.pos_out = self.output_decode(self.pos_dec)
         self.neg_out = self.output_decode(self.neg_dec)
         '''
@@ -219,12 +197,12 @@ class Autoencoder(object):
 
         self.saver = tf.train.Saver()
     
-    def load_model(self, model_saved):
-        tf.reset_default_graph()
-        self.saver.restore(self.sess, model_saved)
+    def load_model(self):
+        self.sess.run(tf.global_variables_initializer())
+        self.saver.restore(self.sess, "./speech_model.ckpt")
     
     def save_model(self):
-        self.saver.save(self.sess, "speech_encoding.ckpt")
+        self.saver.save(self.sess, "./speech_model.ckpt")
             
     def square_err(self, X, Y):
         return tf.reduce_mean((X - Y)**2)
@@ -236,12 +214,14 @@ class Autoencoder(object):
         with tf.variable_scope('cost'):
             #self.get_correct = self.pos_distance < self.neg_distance
             self.get_correct = self.pos_cos_sim > self.neg_cos_sim
-            #self.SE = self.square_err(self.que_dec, self.que_mat) + \
             self.SE = self.square_err(self.pos_dec, self.pos_mat) + \
                       self.square_err(self.neg_dec, self.neg_mat)
             self.HL = self.hinge_loss(self.pos_cos_sim, self.neg_cos_sim)
             self.cost = self.HL + 1e-3*self.SE
             self.optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.cost)
+        if self.load == True:
+            print('Loading trained model')
+            self.load_model()
 
     def __call__(self, data, Len):
         que, pos, neg = data
@@ -256,20 +236,25 @@ class Autoencoder(object):
                                               self.n_files: len(que),
                                              })
         
+    def extract(self, X, Len):
+        return self.sess.run(self.que_repr, feed_dict={self.que_mat: X, 
+                                                       self.que_n_frame: Len})
         
     def training(self, n_epoch, trainData, trainLen, devData, devLen, repack_data=None):
+        self.sess.run(tf.global_variables_initializer())
+
         trainQue, trainPos, trainNeg = trainData
         trainQueLen, trainPosLen, trainNegLen = trainLen
         devQue, devPos, devNeg = devData
         devQueLen, devPosLen, devNegLen = devLen
-        self.sess.run(tf.global_variables_initializer())
+
+        highest_acc = 70.0
         for epoch in range(n_epoch):
-            total_cost = [0.0, 0.0, 0.0]
+            total_cost = []
+            se_cost = []
             acc = 0.0
             count = 0.0
             for i in range(0, len(trainQue), self.b_size):
-                if i + self.b_size > len(trainQue):
-                    break
                 que = trainQue[i: i + self.b_size]
                 pos = trainPos[i: i + self.b_size]
                 neg = trainNeg[i: i + self.b_size]
@@ -288,21 +273,15 @@ class Autoencoder(object):
                                                self.neg_n_frame: neg_len,
                                                self.n_files: len(que),
                                               })
-                total_cost[0] += res[0]
-                total_cost[1] += res[1]
+                total_cost.append(res[0])
+                se_cost.append(res[1])
                 acc += sum(res[4])
                 count += self.b_size
-                #print('cost', res[0])
-                #print('cos_pos', res[2].T)
-                #print('cos_neg', res[3].T)
-                #if epoch == n_epoch - 1:
-                    #print('cost', res[0])
-                    #print('que_repr', np.count_nonzero(res[-3]), res[-3].size)
-                    #print('pos_repr', np.count_nonzero(res[-2]), res[-2].size)
-                    #print('neg_repr', np.count_nonzero(res[-1]), res[-1].size)
-                    #print('cos_sim', np.count_nonzero(res[2]), res[2].size)
             dev_acc = test(devData, devLen, self)
-            print('Epoch %.2d\t Total_cost %.4f\t SE_cost %.4f\t acc %.4f\t dev_acc %.4f' % (epoch, total_cost[0], total_cost[1], acc/count, dev_acc))
+            print('Epoch %.2d\t Total_cost %.4f\t SE_cost %.4f\t acc %.4f\t dev_acc %.4f' % (epoch, np.mean(total_cost), np.mean(se_cost), acc/count, dev_acc))
+            if dev_acc > highest_acc:
+                highest_acc = dev_acc
+                self.save_model()
             if repack_data != None:
                 repack_data()
             

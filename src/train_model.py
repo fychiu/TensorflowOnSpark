@@ -1,4 +1,3 @@
-#from autoencoder import *
 from model import *
 from speech_feature import *
 from embedding import *
@@ -10,6 +9,7 @@ from os import walk
 import sys
 import time
 import random
+import json
 
 feat_extractor = speech_feat()
 
@@ -19,13 +19,15 @@ class Ace291():
         self.n_hidden = 100
         self.feat_size = 40
         self.learning_rate = 1e-3
-        self.frames = 700
+        self.frames = 400
         self.batch_size = 50
         self.n_channel = 1
+        self.shift = 5
         self.feat_fn = feat_extractor.logfbank
         self.q_len = 200 # could be set to random between 200~300 later on
         self.max_len = self.frames # equal to 7 seconds
         self.normalize = True
+        self.istesting = True
         
         start = time.time()
         self.check_input()
@@ -43,12 +45,13 @@ class Ace291():
         print('Data reading done.\t Spend %.4f seconds' % (time.time() - start))
         
         start = time.time()
-        self.data_preprocessing(audioFiles, audioLens, audioData)
+        #self.data_preprocessing(audioFiles, audioLens, audioData)
         print('Shape of one audio file: ', str(audioData[audioFiles[0]].shape))
         print('Data preprocessing done.\t Spend %.4f seconds' % (time.time() - start))
         
         '''All data strcuture is defined in function pack_data)'''
         self.pack_data(audioFiles, audioData, audioLens, audioTran, self.q_len,self.max_len)
+        print(audioData[audioFiles[0]].shape)
 
         def repack_data():
             self.pack_data(audioFiles, audioData, audioLens, audioTran, self.q_len, self.max_len)
@@ -59,24 +62,18 @@ class Ace291():
 
         start = time.time()
         autoencoder = Autoencoder(self.n_hidden, self.feat_size, self.learning_rate, 
-                                  self.frames, self.batch_size)
+                                  self.frames, self.batch_size, load=self.istesting)
         autoencoder.initPlaceholders()
         autoencoder.initParams()
         autoencoder.model()
         autoencoder.calculateCost()
         
         print('Model declaration done.\t Spend %.4f seconds' % (time.time() - start))
-        autoencoder.training(self.n_epoch, self.trainData, self.trainLen, 
-                             self.devData, self.devLen, repack_data) 
-        #autoencoder.training(self.n_epoch, 
-        #                     self.trainQue, self.trainPos, self.trainNeg, 
-        #                     self.trainQueFrames, self.trainPosFrames, self.trainNegFrames,
-        #                     repack_data) 
-        '''
-        
-        embedder = CNNEmbedder(max_len, feat_size, n_channel)
-        embedder.test(np.expand_dims(trainData, -1), trainLens)
-        '''
+        if not self.istesting:
+            autoencoder.training(self.n_epoch, self.trainData, self.trainLen, 
+                                 self.devData, self.devLen, repack_data) 
+        else:
+            self.extract_representation(audioFiles, audioData, audioLens, autoencoder)
 
     def check_input(self):
         assert len(sys.argv) == 2, \
@@ -99,15 +96,12 @@ class Ace291():
                     audioTran[line[0] + '.flac'] = line[1:]
                     for word in line[1:]:
                         vocab[word].append(line[0])
-            elif '.flac' in file_name:
+            elif '.flac' in file_name or '.wav' in file_name:
                 with open(file_name, 'rb') as f:
                     data, samplerate = sf.read(f)
-                mfcc_feat = self.feat_fn(data, samplerate, nfilt=feat_size)
-                #delta_feat = feature_extractor(
-                audioData[os.path.basename(file_name)] = mfcc_feat
-                audioLens[os.path.basename(file_name)] = mfcc_feat.shape[0]
-                #max_len = max(mfcc_feat.shape[0], max_len)
-        assert sum([1 for audioFile in audioData if audioFile not in audioTran])==0
+                audio_feat = self.feat_fn(data, samplerate, nfilt=feat_size)
+                audioData[os.path.basename(file_name)] = audio_feat
+                audioLens[os.path.basename(file_name)] = audio_feat.shape[0]
     
     def data_preprocessing(self, audioFiles, audioLens, audioData):
         max_len = self.max_len
@@ -185,5 +179,34 @@ class Ace291():
         self.trainData = [self.trainQue, self.trainPos, self.trainNeg]
         self.trainLen = [self.trainQueFrames, self.trainPosFrames, self.trainNegFrames]
 
+    def extract_representation(self, audioFiles, audioData, audioLens, autoencoder):
+        encoding_dir = './extract_encoding_model/'
+        if not os.path.isdir(encoding_dir):
+            os.mkdir(encoding_dir)
+        zero_feat = np.zeros((self.feat_size, ))
+        for audioFile in audioFiles:
+            audioEncoding = []
+            audioFeatures = []
+            audioFrameLen = []
+            n = audioLens[audioFile]
+            assert n != 0, audioData[audioFile].shape
+            for i in range(0, n, int(self.shift)):
+                end = min(n, i + self.frames)
+                feat = np.array(audioData[audioFile])[i: end]
+                if end - i < self.max_len:
+                    append_len = self.max_len - (end - i)
+                    feat = np.concatenate([feat, [zero_feat]*append_len], axis=0)
+                print(audioFile, feat.shape)
+                audioFeatures.append(feat)
+                audioFrameLen.append(end - i)
+                if i + self.frames > n:
+                    break
+            audioFeatures, audioFrameLen = np.array(audioFeatures), np.array(audioFrameLen)
+            assert audioFeatures.shape[0] != 0, audioFeatures.shape
+            assert len(audioFeatures.shape) == 3 and len(audioFrameLen.shape) == 1
+            audioEncoding.extend(autoencoder.extract(audioFeatures, audioFrameLen).tolist())
+            print('encoding', np.array(audioEncoding).shape)
+            json.dump(audioEncoding, open(encoding_dir + audioFile + '.json', 'w', encoding='utf8'))
+        print('Extraction of encoding is done')
 
 ace = Ace291()
