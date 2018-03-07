@@ -9,7 +9,7 @@ CLUSTER_FILE=$1
 USER=$2
 PUBKEY=$3
 SPARK_URL="http://apache.cs.utah.edu/spark/spark-2.2.0/spark-2.2.0-bin-hadoop2.7.tgz"
-SPARK_DIR="spark-2.2.0-bin-hadoop2.7/"
+SPARK_DIR="spark-2.2.0-bin-hadoop2.7"
 
 #exec 1>/dev/null
 
@@ -66,9 +66,8 @@ do
             wget $SPARK_URL
             tar -xvf spark-2.2.0-bin-hadoop2.7.tgz
             
-            echo \"export SPARK_HOME=\$HOME/${SPARK_DIR}\" >> ~/.bashrc
-            echo \"export PATH=\$SPARK_HOME/bin:\$PATH\" >> ~/.bashrc
-            exec bash
+            echo \"export SPARK_HOME=\\\$HOME/${SPARK_DIR}\" >> ~/.bashrc
+            echo export PATH=\\\$SPARK_HOME/bin:\\\$PATH >> ~/.bashrc
             exit 
             " < /dev/null 
     fi
@@ -82,6 +81,8 @@ while read f
 do
     if [ "$f" != "" ]; then
         MASTER_ADDR="$(cut -d' ' -f2 <<< $(ssh -i $PUBKEY $USER@${f} $GET_IP))"
+        echo "Master address="
+        echo $MASTER_ADDR
     fi
 done < "$CLUSTER_FILE"
 
@@ -101,8 +102,6 @@ do
 
             ssh -o "StrictHostKeyChecking no" -i $PUBKEY "${USER}@${f}" "
                 $SPARK_DIR/sbin/start-master.sh
-                echo "Master address="
-                echo $MASTER_ADDR
 		exit
             " < /dev/null 
 	else
