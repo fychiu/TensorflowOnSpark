@@ -7,7 +7,16 @@ To use `setup-ssh.sh` to setup the whole cluster, three things are required.
 
 Please use the file as the following way:
 ```
-$> ./setup-ssh.sh CLUSTER_MACHINES_FILE.txt USERNAME RSA_PUBLIC_KEY_FILE
+$> ./setup-all.sh CLUSTER_MACHINES_FILE.txt USERNAME RSA_PUBLIC_KEY_FILE  
 ```
 
-After a while, you can see the WebUI address for the Spark cluster. Enjoy it!
+After a while, you can see the WebUI address for the Spark cluster. Enjoy it!  
+
+Note:  
+There are three additional files functioning on different parts of setup:  
+
+`setup-ssh.sh: setup ssh connection between master and slaves machines.`  
+`setup-install.sh: install Spark on every machine.`  
+`setup-start.sh: launch Spark on master and connect slaves to the master.`  
+
+There might be a `stop.sh` to trun down every machines. To be continued.
