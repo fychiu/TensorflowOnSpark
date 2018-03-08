@@ -1,5 +1,6 @@
 # TensorflowOnSpark
 
+## Spark Setup
 To use `setup-ssh.sh` to setup the whole cluster, three things are required.
 1. A `.txt` file to indicate the machines address with the master address at first line and others are the following line.
 2. A USERNAME for all the machines. Currently, we only support cluster machines with identical usernames.
