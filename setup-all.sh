@@ -94,7 +94,7 @@ do
         ssh -o "StrictHostKeyChecking no" -i $PUBKEY "${USER}@${f}" "
 	    cd $SPARK_DIR/conf
             cp spark-env.sh.template spark-env.sh
-            echo spark_master_host=${MASTER_ADDR} >> spark-env.sh
+            echo SPARK_MASTER_HOST=${MASTER_ADDR} >> spark-env.sh
         " < /dev/null 
 
         if [ "$NUM" == 0 ]; then

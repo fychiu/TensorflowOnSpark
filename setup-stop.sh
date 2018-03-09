@@ -27,24 +27,18 @@ NUM=0
 while read f
 do
     if [ "$f" != "" ]; then
-        ssh -o "StrictHostKeyChecking no" -i $PUBKEY "${USER}@${f}" "
-	    cd $SPARK_DIR/conf
-            cp spark-env.sh.template spark-env.sh
-            echo spark_master_host=${MASTER_ADDR} >> spark-env.sh
-        " < /dev/null 
-
         if [ "$NUM" == 0 ]; then
             echo "$f master"
 
             ssh -o "StrictHostKeyChecking no" -i $PUBKEY "${USER}@${f}" "
-                $SPARK_DIR/sbin/start-master.sh
+                $SPARK_DIR/sbin/stop-master.sh
 		exit
             " < /dev/null 
 	else
 	    echo "$f slave"
 
             ssh -o "StrictHostKeyChecking no" -i $PUBKEY "${USER}@${f}" "
-                $SPARK_DIR/sbin/start-slave.sh spark://$MASTER_ADDR:7077
+                $SPARK_DIR/sbin/stop-slave.sh
 		exit
             " < /dev/null 
 	fi
@@ -52,6 +46,4 @@ do
     NUM=$((NUM+1))
 done < "$CLUSTER_FILE"
 
-echo "Please use browser to connect to
-
-                                           http://${MASTER_ADDR}:8081"
+echo "All the machines stop"
